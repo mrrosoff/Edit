@@ -1,0 +1,36 @@
+# IDE Files
+
+.idea
+.vscode
+
+# MacOS Files
+
+.DS_Store
+
+# Node Files
+
+node_modules
+
+# Python files
+
+/venv
+/env
+__pycache__
+
+# Other Files
+
+.env
+dependency-reduced-pom.xml
+
+# Output Files
+
+build
+coverage
+dist
+lib
+out
+target
+
+# Test Files
+
+.nyc_output
