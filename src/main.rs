@@ -1,35 +1,43 @@
-use rand::Rng;
-use std::cmp::Ordering;
-use std::io;
+use std::io::{stdin, stdout, Write};
+use termion::event::Key;
+use termion::input::TermRead;
+use termion::raw::IntoRawMode;
 
 fn main() {
-    println!("Guess the number!");
+    let stdin = stdin();
+    let mut stdout = stdout().into_raw_mode().unwrap();
 
-    let secret_number = rand::thread_rng().gen_range(1..101);
+    write!(
+        stdout,
+        "{}{}q to exit. Type stuff, use alt, and so on.{}",
+        termion::clear::All,
+        termion::cursor::Goto(1, 1),
+        termion::cursor::Hide
+    )
+    .unwrap();
+    stdout.flush().unwrap();
 
-    loop {
-        println!("Please input your guess.");
+    let mut cursor_index = 0;
 
-        let mut guess = String::new();
+    for c in stdin.keys() {
+        write!(stdout, "{}", termion::cursor::Goto(cursor_index, 1)).unwrap();
 
-        io::stdin()
-            .read_line(&mut guess)
-            .expect("Failed to read line");
+        cursor_index += 1;
 
-        let guess: u32 = match guess.trim().parse() {
-            Ok(num) => num,
-            Err(_) => continue
-        };
-            
-        println!("You guessed: {}", guess);
-
-        match guess.cmp(&secret_number) {
-            Ordering::Less => println!("Too small!"),
-            Ordering::Greater => println!("Too big!"),
-            Ordering::Equal => {
-                println!("You win!");
-                break;
-            }
+        match c.unwrap() {
+            Key::Char('q') => break,
+            Key::Char(c) => println!("{}", c),
+            Key::Alt(c) => println!("^{}", c),
+            Key::Ctrl(c) => println!("*{}", c),
+            Key::Esc => println!("ESC"),
+            Key::Left => println!("←"),
+            Key::Right => println!("→"),
+            Key::Up => println!("↑"),
+            Key::Down => println!("↓"),
+            Key::Backspace => println!("×"),
+            _ => {}
         }
     }
+
+    write!(stdout, "{}", termion::cursor::Show).unwrap();
 }
