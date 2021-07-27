@@ -1,17 +1,14 @@
 use std::env;
 use std::fs;
-use std::io::{Write, stdout, stdin};
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::{stdin, stdout, Write};
+use std::path::Path;
 
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::screen::*;
-
-enum TerminalMode {
-    NewFile,
-    EditFile(String),
-    None,
-}
 
 fn write_alt_screen_msg<W: Write>(screen: &mut W) {
     write!(screen, "{}", termion::clear::All).unwrap();
@@ -19,17 +16,29 @@ fn write_alt_screen_msg<W: Write>(screen: &mut W) {
     write!(screen, "Welcome To The Alternate Screen.").unwrap();
 }
 
-fn determine_terminal_mode() -> TerminalMode {
-    let args: Vec<String> = env::args().collect();
-    match args.len() {
-        1 => TerminalMode::NewFile,
-        2 => {
-            let filename = &args[1];
-            TerminalMode::EditFile(filename.clone())
-        }
-        _ => TerminalMode::None,
-    }
+//Figure Out Buffer!
+fn save_file(path: &str) -> File {
+    let file = match File::create(Path::new(path)) {
+        Err(why) => panic!("couldn't create {}: {}", path, why),
+        Ok(file) => file,
+    };
+    file
 }
+
+// fn determine_terminal_mode() -> File {
+//     let args: Vec<String> = env::args().collect();
+//     match args.len() {
+//         2 => {
+//             let path = Path::new(&args[1]);
+//             let file = match File::create(&path) {
+//                 Err(why) => panic!("couldn't create {}: {}" , &args[1], why),
+//                 Ok(file) => file,
+//             };
+//             file
+//         }
+//         _ => panic!("usage: {} <file>", &args[0]);
+//     }
+// }
 
 fn create_alternate_screen(file: String) {
     let stdin = stdin();
@@ -53,21 +62,22 @@ fn create_alternate_screen(file: String) {
         }
         screen.flush().unwrap();
     }
-    write!(screen, "{}", termion::cursor::Show).unwrap();   
+    write!(screen, "{}", termion::cursor::Show).unwrap();
 }
 
 fn main() {
-    let terminal_mode = determine_terminal_mode();
-    match terminal_mode {
-        TerminalMode::NewFile => {
-            create_alternate_screen(String::new());
-        }
-        TerminalMode::EditFile(filename) => {
-            let data = fs::read_to_string(filename).expect("Unable to read file");
-            create_alternate_screen(data);
-        }
-        TerminalMode::None => {
-            return;
-        }
-    }
+    // let terminal_mode = determine_terminal_mode();
+    print!("Done!")
+    // match terminal_mode {
+    //     TerminalMode::NewFile => {
+    //         create_alternate_screen(String::new());
+    //     }
+    //     TerminalMode::EditFile(filename) => {
+    //         let data = fs::read_to_string(filename).expect("Unable to read file");
+    //         create_alternate_screen(data);
+    //     }
+    //     TerminalMode::None => {
+    //         return;
+    //     }
+    // }
 }
