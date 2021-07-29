@@ -5,8 +5,8 @@ use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
 use std::path::Path;
 
-use termion::event::Key;
-use termion::input::TermRead;
+use termion::event::{Event, Key, MouseEvent};
+use termion::input::{MouseTerminal, TermRead};
 use termion::raw::IntoRawMode;
 use termion::screen::*;
 
@@ -50,8 +50,11 @@ where
 
 fn create_alternate_screen(
     file: String,
-) -> termion::screen::AlternateScreen<termion::raw::RawTerminal<std::io::Stdout>> {
-    let mut screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
+) -> termion::screen::AlternateScreen<
+    termion::input::MouseTerminal<termion::raw::RawTerminal<std::io::Stdout>>,
+> {
+    let mut stdout = MouseTerminal::from(stdout().into_raw_mode().unwrap());
+    let mut screen = AlternateScreen::from(stdout);
     write!(screen, "{}", termion::cursor::Goto(1, 1)).unwrap();
     display_file();
     screen.flush().unwrap();
@@ -78,10 +81,11 @@ fn iterate_key_strokes(screen: &mut Write) {
     let stdin = stdin();
     let mut cursor_row = 1;
     let mut cursor_col = 1;
-    for c in stdin.keys() {
-        match c.unwrap() {
-            Key::Ctrl('q') => break,
-            Key::Char(c) => {
+    for c in stdin.events() {
+        let evt = c.unwrap();
+        match evt {
+            Event::Key(Key::Ctrl('q')) => break,
+            Event::Key(Key::Char(c)) => {
                 if c as i32 == 10 {
                     cursor_row += 1;
                     cursor_col = 0;
@@ -89,13 +93,19 @@ fn iterate_key_strokes(screen: &mut Write) {
                 cursor_col += 1;
                 print!("{}", c)
             }
-            Key::Left => cursor_col -= 1,
-            Key::Right => cursor_col += 1,
-            Key::Up => cursor_row -= 1,
-            Key::Down => cursor_row += 1,
-            Key::Backspace => {
+            Event::Key(Key::Left) => cursor_col -= 1,
+            Event::Key(Key::Right) => cursor_col += 1,
+            Event::Key(Key::Up) => cursor_row -= 1,
+            Event::Key(Key::Down) => cursor_row += 1,
+            Event::Key(Key::Backspace) => {
                 cursor_col -= 1;
             }
+            Event::Mouse(me) => match me {
+                MouseEvent::Press(_, x, y) => {
+                    write!(screen, "{}", termion::cursor::Goto(x, y)).unwrap();
+                }
+                _ => (),
+            },
             _ => {}
         }
         write!(screen, "{}", termion::cursor::Goto(cursor_col, cursor_row)).unwrap();
