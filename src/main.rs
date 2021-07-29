@@ -35,10 +35,7 @@ fn load_file() -> Vec<String> {
     file_lines
 }
 
-fn read_lines<P>(filename: P) -> Result<Lines<BufReader<File>>>
-where
-    P: AsRef<Path>,
-{
+fn read_lines(filename: &Path) -> Result<Lines<BufReader<File>>> {
     let file = File::open(filename)?;
     Ok(BufReader::new(file).lines())
 }
@@ -65,14 +62,16 @@ fn display_file(file: Vec<String>, screen: &mut Write) {
     // Load these once at the start of your program
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
-
+    let mut row = 1;
     let syntax = ps.find_syntax_by_extension("rs").unwrap();
     let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
     for line in file {
-        // LinesWithEndings enables use of newlines mode
+        write!(screen, "{}", termion::cursor::Goto(1, row)).unwrap();
         let ranges: Vec<(Style, &str)> = h.highlight(line.as_str(), &ps);
         let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
         println!("{}", escaped);
+        screen.flush().unwrap();
+        row += 1;
     }
 }
 
@@ -84,6 +83,9 @@ fn handle_events(screen: &mut Write) {
         let evt = c.unwrap();
         match evt {
             Event::Key(Key::Ctrl('q')) => break,
+            Event::Key(Key::Ctrl('s')) => {
+                save_file("Hi.txt");
+            },
             Event::Key(Key::Char(c)) => {
                 if c as i32 == 10 {
                     cursor_row += 1;
@@ -112,11 +114,6 @@ fn handle_events(screen: &mut Write) {
     }
 }
 
-fn clean_up(screen: &mut Write) {
-    save_file("Hi");
-    write!(screen, "{}", termion::cursor::Show).unwrap();
-}
-
 //Figure Out Buffer!
 fn save_file(path: &str) -> File {
     let file = match File::create(Path::new(path)) {
@@ -131,5 +128,4 @@ fn main() {
     let mut screen = create_editor_ui();
     display_file(file, &mut screen);
     handle_events(&mut screen);
-    clean_up(&mut screen);
 }
