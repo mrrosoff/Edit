@@ -10,6 +10,11 @@ use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::screen::*;
 
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{Style, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
+
 fn create_file_buffer() -> String {
     let args: Vec<String> = env::args().collect();
     match args.len() {
@@ -23,12 +28,30 @@ fn create_file_buffer() -> String {
     }
 }
 
-fn create_alternate_screen(file: String) -> termion::screen::AlternateScreen<termion::raw::RawTerminal<std::io::Stdout>> {
-    let stdin = stdin();
+fn create_alternate_screen(
+    file: String,
+) -> termion::screen::AlternateScreen<termion::raw::RawTerminal<std::io::Stdout>> {
     let mut screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
     write!(screen, "{}", termion::cursor::Goto(1, 1)).unwrap();
+    display_file();
     screen.flush().unwrap();
     screen
+}
+
+fn display_file() {
+    // Load these once at the start of your program
+    let ps = SyntaxSet::load_defaults_newlines();
+    let ts = ThemeSet::load_defaults();
+
+    let syntax = ps.find_syntax_by_extension("rs").unwrap();
+    let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
+    let s = "pub struct Wow { hi: u64 }\nfn blah() -> u64 {}";
+    for line in LinesWithEndings::from(s) {
+        // LinesWithEndings enables use of newlines mode
+        let ranges: Vec<(Style, &str)> = h.highlight(line, &ps);
+        let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
+        println!("{}", escaped);
+    }
 }
 
 fn iterate_key_strokes(screen: &mut Write) {
