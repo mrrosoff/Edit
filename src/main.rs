@@ -1,6 +1,9 @@
 use std::env;
 use std::fs;
-use std::io::{Write, stdout, stdin};
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::{stdin, stdout, Write};
+use std::path::Path;
 
 use termion::event::Key;
 use termion::input::TermRead;
@@ -58,7 +61,17 @@ fn iterate_key_strokes(screen: &mut Write) {
 }
 
 fn clean_up(screen: &mut Write) {
+    save_file("Hi");
     write!(screen, "{}", termion::cursor::Show).unwrap();
+}
+
+//Figure Out Buffer!
+fn save_file(path: &str) -> File {
+    let file = match File::create(Path::new(path)) {
+        Err(why) => panic!("couldn't create {}: {}", path, why),
+        Ok(file) => file,
+    };
+    file
 }
 
 fn main() {
