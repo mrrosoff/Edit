@@ -15,11 +15,10 @@ use syntect::highlighting::{Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
 
-fn create_file_buffer() -> Vec<String> {
+fn load_file() -> Vec<String> {
     let args: Vec<String> = env::args().collect();
     let mut file_lines: Vec<String> = Vec::new();
     match args.len() {
-        // 1 => String::from("newFile.txt"),
         2 => {
             if let Ok(lines) = read_lines(Path::new(&args[1])) {
                 for line in lines {
@@ -27,10 +26,6 @@ fn create_file_buffer() -> Vec<String> {
                         file_lines.push(ip);
                     }
                 }
-
-                // let filename = &args[1];
-                // let data = fs::read_to_string(filename).expect("Unable to read file");
-                // filename.clone()
             }
         }
         _ => {
@@ -48,36 +43,40 @@ where
     Ok(BufReader::new(file).lines())
 }
 
-fn create_alternate_screen(
-    file: String,
-) -> termion::screen::AlternateScreen<
+fn create_editor_ui() -> termion::screen::AlternateScreen<
     termion::input::MouseTerminal<termion::raw::RawTerminal<std::io::Stdout>>,
 > {
-    let mut stdout = MouseTerminal::from(stdout().into_raw_mode().unwrap());
-    let mut screen = AlternateScreen::from(stdout);
+    let mut screen = create_screen_overlay();
     write!(screen, "{}", termion::cursor::Goto(1, 1)).unwrap();
-    display_file();
     screen.flush().unwrap();
     screen
 }
 
-fn display_file() {
+fn create_screen_overlay() -> termion::screen::AlternateScreen<
+    termion::input::MouseTerminal<termion::raw::RawTerminal<std::io::Stdout>>,
+> {
+    let raw_terminal = stdout().into_raw_mode().unwrap();
+    let with_mouse_support = MouseTerminal::from(raw_terminal);
+    let screen = AlternateScreen::from(with_mouse_support);
+    screen
+}
+
+fn display_file(file: Vec<String>, screen: &mut Write) {
     // Load these once at the start of your program
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
 
     let syntax = ps.find_syntax_by_extension("rs").unwrap();
     let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
-    let s = "pub struct Wow { hi: u64 }\nfn blah() -> u64 {}";
-    for line in LinesWithEndings::from(s) {
+    for line in file {
         // LinesWithEndings enables use of newlines mode
-        let ranges: Vec<(Style, &str)> = h.highlight(line, &ps);
+        let ranges: Vec<(Style, &str)> = h.highlight(line.as_str(), &ps);
         let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
         println!("{}", escaped);
     }
 }
 
-fn iterate_key_strokes(screen: &mut Write) {
+fn handle_events(screen: &mut Write) {
     let stdin = stdin();
     let mut cursor_row = 1;
     let mut cursor_col = 1;
@@ -128,9 +127,9 @@ fn save_file(path: &str) -> File {
 }
 
 fn main() {
-    println!("{:?}",create_file_buffer());
-    // let file_buffer = create_file_buffer();
-    // let mut screen = create_alternate_screen(file_buffer);
-    // iterate_key_strokes(&mut screen);
-    // clean_up(&mut screen);
+    let file = load_file();
+    let mut screen = create_editor_ui();
+    display_file(file, &mut screen);
+    handle_events(&mut screen);
+    clean_up(&mut screen);
 }
