@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{stdin, stdout, Write};
+use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
 use std::path::Path;
 
 use termion::event::Key;
@@ -15,17 +15,37 @@ use syntect::highlighting::{Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
 
-fn create_file_buffer() -> String {
+fn create_file_buffer() -> Vec<String> {
     let args: Vec<String> = env::args().collect();
+    let mut file_lines: Vec<String> = Vec::new();
     match args.len() {
-        1 => String::from("newFile.txt"),
+        // 1 => String::from("newFile.txt"),
         2 => {
-            let filename = &args[1];
-            let data = fs::read_to_string(filename).expect("Unable to read file");
-            filename.clone()
+            if let Ok(lines) = read_lines(Path::new(&args[1])) {
+                for line in lines {
+                    if let Ok(ip) = line {
+                        file_lines.push(ip);
+                    }
+                }
+
+                // let filename = &args[1];
+                // let data = fs::read_to_string(filename).expect("Unable to read file");
+                // filename.clone()
+            }
         }
-        _ => String::from("Error!"),
+        _ => {
+            println!("WHOOPS")
+        }
     }
+    file_lines
+}
+
+fn read_lines<P>(filename: P) -> Result<Lines<BufReader<File>>>
+where
+    P: AsRef<Path>,
+{
+    let file = File::open(filename)?;
+    Ok(BufReader::new(file).lines())
 }
 
 fn create_alternate_screen(
@@ -98,8 +118,9 @@ fn save_file(path: &str) -> File {
 }
 
 fn main() {
-    let file_buffer = create_file_buffer();
-    let mut screen = create_alternate_screen(file_buffer);
-    iterate_key_strokes(&mut screen);
-    clean_up(&mut screen);
+    println!("{:?}",create_file_buffer());
+    // let file_buffer = create_file_buffer();
+    // let mut screen = create_alternate_screen(file_buffer);
+    // iterate_key_strokes(&mut screen);
+    // clean_up(&mut screen);
 }
