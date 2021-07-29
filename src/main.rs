@@ -7,67 +7,63 @@ use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::screen::*;
 
-enum TerminalMode {
-    NewFile,
-    EditFile(String),
-    None,
-}
-
-fn write_alt_screen_msg<W: Write>(screen: &mut W) {
-    write!(screen, "{}", termion::clear::All).unwrap();
-    write!(screen, "{}", termion::cursor::Goto(1, 1)).unwrap();
-    write!(screen, "Welcome To The Alternate Screen.").unwrap();
-}
-
-fn determine_terminal_mode() -> TerminalMode {
+fn create_file_buffer() -> String {
     let args: Vec<String> = env::args().collect();
     match args.len() {
-        1 => TerminalMode::NewFile,
+        1 => String::from("newFile.txt"),
         2 => {
             let filename = &args[1];
-            TerminalMode::EditFile(filename.clone())
+            let data = fs::read_to_string(filename).expect("Unable to read file");
+            filename.clone()
         }
-        _ => TerminalMode::None,
+        _ => String::from("Error!"),
     }
 }
 
-fn create_alternate_screen(file: String) {
+fn create_alternate_screen(file: String) -> termion::screen::AlternateScreen<termion::raw::RawTerminal<std::io::Stdout>> {
     let stdin = stdin();
     let mut screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
-    write!(screen, "{}", termion::cursor::Hide).unwrap();
-    write_alt_screen_msg(&mut screen);
+    write!(screen, "{}", termion::cursor::Goto(1, 1)).unwrap();
     screen.flush().unwrap();
+    screen
+}
+
+fn iterate_key_strokes(screen: &mut Write) {
+    let stdin = stdin();
+    let mut cursor_row = 1;
+    let mut cursor_col = 1;
     for c in stdin.keys() {
         match c.unwrap() {
-            Key::Char('q') => break,
-            Key::Char(c) => println!("{}", c),
-            Key::Alt(c) => println!("^{}", c),
-            Key::Ctrl(c) => println!("*{}", c),
-            Key::Esc => println!("ESC"),
-            Key::Left => println!("←"),
-            Key::Right => println!("→"),
-            Key::Up => println!("↑"),
-            Key::Down => println!("↓"),
-            Key::Backspace => println!("×"),
+            Key::Ctrl('q') => break,
+            Key::Char(c) => {
+                if c as i32 == 10 {
+                    cursor_row += 1;
+                    cursor_col = 0;
+                }
+                cursor_col += 1;
+                print!("{}", c)
+            }
+            Key::Left => cursor_col -= 1,
+            Key::Right => cursor_col += 1,
+            Key::Up => cursor_row -= 1,
+            Key::Down => cursor_row += 1,
+            Key::Backspace => {
+                cursor_col -= 1;
+            }
             _ => {}
         }
+        write!(screen, "{}", termion::cursor::Goto(cursor_col, cursor_row)).unwrap();
         screen.flush().unwrap();
     }
-    write!(screen, "{}", termion::cursor::Show).unwrap();   
+}
+
+fn clean_up(screen: &mut Write) {
+    write!(screen, "{}", termion::cursor::Show).unwrap();
 }
 
 fn main() {
-    let terminal_mode = determine_terminal_mode();
-    match terminal_mode {
-        TerminalMode::NewFile => {
-            create_alternate_screen(String::new());
-        }
-        TerminalMode::EditFile(filename) => {
-            let data = fs::read_to_string(filename).expect("Unable to read file");
-            create_alternate_screen(data);
-        }
-        TerminalMode::None => {
-            return;
-        }
-    }
+    let file_buffer = create_file_buffer();
+    let mut screen = create_alternate_screen(file_buffer);
+    iterate_key_strokes(&mut screen);
+    clean_up(&mut screen);
 }
