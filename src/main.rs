@@ -29,7 +29,7 @@ fn load_file() -> Vec<String> {
             }
         }
         _ => {
-            println!("WHOOPS")
+            println!("Usage: edit [filename]")
         }
     }
     file_lines
