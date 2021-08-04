@@ -1,5 +1,4 @@
 use std::env;
-use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
@@ -13,23 +12,39 @@ use termion::screen::*;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
-use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
+use syntect::util::as_24_bit_terminal_escaped;
 
-fn load_file() -> Vec<String> {
+struct TerminalInformation {
+    file_name: String,
+    saved: bool,
+    row: u32,
+    col: u32,
+}
+
+fn get_file_name() -> String {
     let args: Vec<String> = env::args().collect();
-    let mut file_lines: Vec<String> = Vec::new();
     match args.len() {
-        2 => {
-            if let Ok(lines) = read_lines(Path::new(&args[1])) {
-                for line in lines {
-                    if let Ok(ip) = line {
-                        file_lines.push(ip);
-                    }
-                }
-            }
-        }
+        1 => String::new(),
+        2 => String::from(&args[1]),
         _ => {
-            println!("Usage: edit [filename]")
+            print_help();
+            String::new()
+        }
+    }
+}
+
+fn print_help() {
+    println!("Usage: edit [OPTIONS] [FILE]\n");
+    println!("Option\tLong\tMeaning");
+}
+
+fn load_file(file_name: String) -> Vec<String> {
+    let mut file_lines: Vec<String> = Vec::new();
+    if let Ok(lines) = read_lines(Path::new(file_name.as_str())) {
+        for line in lines {
+            if let Ok(iterator) = line {
+                file_lines.push(iterator);
+            }
         }
     }
     file_lines
@@ -45,6 +60,7 @@ fn create_editor_ui() -> termion::screen::AlternateScreen<
 > {
     let mut screen = create_screen_overlay();
     write!(screen, "{}", termion::cursor::Goto(1, 1)).unwrap();
+    write!(screen, "Edit").unwrap();
     screen.flush().unwrap();
     screen
 }
@@ -58,11 +74,11 @@ fn create_screen_overlay() -> termion::screen::AlternateScreen<
     screen
 }
 
-fn display_file(file: Vec<String>, screen: &mut Write) {
+fn display_file(file: Vec<String>, screen: &mut dyn Write) {
     // Load these once at the start of your program
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
-    let mut row = 1;
+    let mut row = 3;
     let syntax = ps.find_syntax_by_extension("rs").unwrap();
     let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
     for line in file {
@@ -75,7 +91,7 @@ fn display_file(file: Vec<String>, screen: &mut Write) {
     }
 }
 
-fn handle_events(screen: &mut Write) {
+fn handle_events(screen: &mut dyn Write) {
     let stdin = stdin();
     let mut cursor_row = 1;
     let mut cursor_col = 1;
@@ -85,7 +101,7 @@ fn handle_events(screen: &mut Write) {
             Event::Key(Key::Ctrl('q')) => break,
             Event::Key(Key::Ctrl('s')) => {
                 save_file("Hi.txt");
-            },
+            }
             Event::Key(Key::Char(c)) => {
                 if c as i32 == 10 {
                     cursor_row += 1;
@@ -104,6 +120,7 @@ fn handle_events(screen: &mut Write) {
             Event::Mouse(me) => match me {
                 MouseEvent::Press(_, x, y) => {
                     write!(screen, "{}", termion::cursor::Goto(x, y)).unwrap();
+                    screen.flush().unwrap();
                 }
                 _ => (),
             },
@@ -124,7 +141,20 @@ fn save_file(path: &str) -> File {
 }
 
 fn main() {
-    let file = load_file();
+    let term = TerminalInformation {
+        file_name: get_file_name(),
+        row: 1,
+        col: 1,
+        saved: false,
+    };
+
+    let file;
+    if term.file_name != "" {
+        file = load_file(term.file_name);
+    } else {
+        file = Vec::new();
+    }
+
     let mut screen = create_editor_ui();
     display_file(file, &mut screen);
     handle_events(&mut screen);
