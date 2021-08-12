@@ -74,20 +74,19 @@ fn create_screen_overlay() -> termion::screen::AlternateScreen<
     screen
 }
 
-fn display_file(file: Vec<String>, screen: &mut dyn Write) {
+fn display_file(file: Vec<String>, term: &mut TerminalInformation, screen: &mut dyn Write) {
     // Load these once at the start of your program
     let ps = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
-    let mut row = 3;
     let syntax = ps.find_syntax_by_extension("rs").unwrap();
     let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
-    for line in file {
-        write!(screen, "{}", termion::cursor::Goto(1, row)).unwrap();
-        let ranges: Vec<(Style, &str)> = h.highlight(line.as_str(), &ps);
+    for [line, i] in file.enumerate() {
+        write!(screen, "{}", termion::cursor::Goto(1, term.row as u16)).unwrap();
+        let ranges: Vec<(Style, &str)> = h.highlight(file[i as usize].as_str(), &ps);
         let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
         println!("{}", escaped);
         screen.flush().unwrap();
-        row += 1;
+        term.row += 1;
     }
 }
 
@@ -143,7 +142,7 @@ fn save_file(path: &str) -> File {
 fn main() {
     let term = TerminalInformation {
         file_name: get_file_name(),
-        row: 1,
+        row: 3,
         col: 1,
         saved: false,
     };
@@ -156,6 +155,6 @@ fn main() {
     }
 
     let mut screen = create_editor_ui();
-    display_file(file, &mut screen);
+    display_file(file, &mut term, &mut screen);
     handle_events(&mut screen);
 }
