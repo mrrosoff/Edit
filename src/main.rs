@@ -2,7 +2,7 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use termion::event::{Event, Key, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
@@ -10,16 +10,36 @@ use termion::raw::IntoRawMode;
 use termion::screen::*;
 
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{Style, ThemeSet};
-use syntect::parsing::SyntaxSet;
+use syntect::highlighting::{Style, Theme, ThemeSet};
+use syntect::parsing::{SyntaxSet, SyntaxReference};
 use syntect::util::as_24_bit_terminal_escaped;
 
-struct TerminalInformation {
-    file_name: String,
-    saved: bool,
-    row: u32,
-    col: u32,
+
+struct EditorConfiguration<'a, 'b> {
+    syntax: &'b SyntaxReference,
+    theme: &'a Theme,
 }
+
+struct EditorStatus {
+    display_begin_row: u16,
+    display_end_row: u16,
+    cursor_row: u16,
+    cursor_col: u16,
+    saved: bool,
+}
+
+struct FileInformation {
+    file_path: PathBuf,
+    filename: String,
+    contents: Vec<String>
+}
+
+struct Editor<'a, 'b>{
+    edit_configuration: EditorConfiguration<'a, 'b>,
+    edit_status: EditorStatus,
+    file_information: FileInformation,
+}
+
 
 fn get_file_name() -> String {
     let args: Vec<String> = env::args().collect();
@@ -38,16 +58,25 @@ fn print_help() {
     println!("Option\tLong\tMeaning");
 }
 
-fn load_file(file_name: String) -> Vec<String> {
+fn load_file(file_name: &String, syntax: &SyntaxReference, theme: &Theme) -> Vec<String> {
+    if file_name == "" { 
+        return Vec::new();
+    }
     let mut file_lines: Vec<String> = Vec::new();
+    let mut h = HighlightLines::new(&syntax, &theme);
     if let Ok(lines) = read_lines(Path::new(file_name.as_str())) {
+        
         for line in lines {
             if let Ok(iterator) = line {
-                file_lines.push(iterator);
+                let ranges: Vec<(Style, &str)> = h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
+                let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
+                file_lines.push(escaped);
             }
         }
     }
     file_lines
+    
+
 }
 
 fn read_lines(filename: &Path) -> Result<Lines<BufReader<File>>> {
@@ -74,20 +103,16 @@ fn create_screen_overlay() -> termion::screen::AlternateScreen<
     screen
 }
 
-fn display_file(file: Vec<String>, term: &mut TerminalInformation, screen: &mut dyn Write) {
-    // Load these once at the start of your program
-    let ps = SyntaxSet::load_defaults_newlines();
-    let ts = ThemeSet::load_defaults();
-    let syntax = ps.find_syntax_by_extension("rs").unwrap();
-    let mut h = HighlightLines::new(syntax, &ts.themes["base16-ocean.dark"]);
-    for [line, i] in file.enumerate() {
-        write!(screen, "{}", termion::cursor::Goto(1, term.row as u16)).unwrap();
-        let ranges: Vec<(Style, &str)> = h.highlight(file[i as usize].as_str(), &ps);
-        let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
-        println!("{}", escaped);
-        screen.flush().unwrap();
-        term.row += 1;
+fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
+    let mut editor_status = &mut editor.edit_status;
+    let file_information = &editor.file_information;
+    
+    for line in &file_information.contents[editor_status.display_begin_row as usize..editor_status.display_end_row as usize] {
+        write!(screen, "{}", termion::cursor::Goto(1, editor_status.cursor_row as u16)).unwrap();       
+        println!("{}", line);
+        editor_status.cursor_row += 1;
     }
+    screen.flush().unwrap();
 }
 
 fn handle_events(screen: &mut dyn Write) {
@@ -140,21 +165,33 @@ fn save_file(path: &str) -> File {
 }
 
 fn main() {
-    let term = TerminalInformation {
-        file_name: get_file_name(),
-        row: 3,
-        col: 1,
-        saved: false,
+    let filename = get_file_name();
+    //TODO: Fix panic
+    let (_, file_extension) = filename.split_at(filename.find('.').unwrap() + 1); 
+    let syntax_set = SyntaxSet::load_defaults_newlines();
+    let syntax = syntax_set.find_syntax_by_extension(file_extension).unwrap();
+    let theme = &ThemeSet::load_defaults().themes["base16-ocean.dark"];
+
+    let mut editor = Editor {
+        edit_configuration: EditorConfiguration {
+            syntax: syntax,
+            theme: theme,
+        },
+        edit_status: EditorStatus {
+            display_begin_row: 0,
+            display_end_row: 3,
+            cursor_row: 3,
+            cursor_col: 1,
+            saved: false,
+        },
+        file_information: FileInformation {
+            file_path: PathBuf::new(),
+            filename: filename.clone(),
+            contents: load_file(&filename, &syntax, &theme),
+        },
     };
 
-    let file;
-    if term.file_name != "" {
-        file = load_file(term.file_name);
-    } else {
-        file = Vec::new();
-    }
-
     let mut screen = create_editor_ui();
-    display_file(file, &mut term, &mut screen);
+    display_file(&mut editor, &mut screen);
     handle_events(&mut screen);
 }
