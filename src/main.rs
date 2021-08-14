@@ -1,4 +1,5 @@
 use std::env;
+use std::thread;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
@@ -41,6 +42,7 @@ struct Editor<'a, 'b>{
 }
 
 
+
 fn get_file_name() -> String {
     let args: Vec<String> = env::args().collect();
     match args.len() {
@@ -58,24 +60,28 @@ fn print_help() {
     println!("Option\tLong\tMeaning");
 }
 
-fn load_file(file_name: &String, syntax: &SyntaxReference, theme: &Theme) -> Vec<String> {
+fn load_file(file_name: &String, syntax: &'static SyntaxReference, theme: &'static Theme) -> Vec<String> {
     if file_name == "" { 
         return Vec::new();
     }
     let mut file_lines: Vec<String> = Vec::new();
-    let mut h = HighlightLines::new(&syntax, &theme);
     if let Ok(lines) = read_lines(Path::new(file_name.as_str())) {
-        
+        let handle = thread::spawn(move || {
         for line in lines {
+            let mut h = HighlightLines::new(&syntax, &theme);
             if let Ok(iterator) = line {
                 let ranges: Vec<(Style, &str)> = h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
                 let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
-                file_lines.push(escaped);
-            }
+                // file_lines.push(escaped);
+                
+            }        
         }
+        });
+        handle.join().unwrap();
     }
+   
+    println!("Hello");
     file_lines
-    
 
 }
 
