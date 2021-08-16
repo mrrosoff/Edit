@@ -3,8 +3,8 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::sync::Mutex;
+use std::thread;
 
 use termion::event::{Event, Key, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
@@ -46,14 +46,16 @@ impl Editor<'_, '_> {
         let file_lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
         let mut threads: Vec<thread::JoinHandle<()>> = Vec::new();
         if let Ok(lines) = self.read_lines(&self.file_information.file_path) {
+            let syntax: Mutex<SyntaxReference> = Mutex::new(self.edit_configuration.syntax.clone());
+            let theme: Mutex<Theme> = Mutex::new(self.edit_configuration.theme.clone());
             for line in lines {
-                let syntax = self.edit_configuration.syntax.clone();
-                let theme = self.edit_configuration.theme.clone();
                 let handle = thread::spawn(move || {
                     if let Ok(iterator) = line {
-                        let mut h = HighlightLines::new(&syntax, &theme);
+                        let m_syntax = syntax.lock().unwrap();
+                        let m_theme = theme.lock().unwrap();
+                        let mut h = HighlightLines::new(&m_syntax, &m_theme);
                         let ranges: Vec<(Style, &str)> =
-                             h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
+                            h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
                         let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
                         let mut m_file_lines = file_lines.lock().unwrap();
                         m_file_lines.push(escaped);
