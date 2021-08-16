@@ -1,9 +1,9 @@
 use std::env;
-use std::thread;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
 use std::path::{Path, PathBuf};
+use std::thread;
 
 use termion::event::{Event, Key, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
@@ -12,9 +12,8 @@ use termion::screen::*;
 
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, Theme, ThemeSet};
-use syntect::parsing::{SyntaxSet, SyntaxReference};
+use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::as_24_bit_terminal_escaped;
-
 
 struct EditorConfiguration<'a, 'b> {
     syntax: &'b SyntaxReference,
@@ -31,17 +30,51 @@ struct EditorStatus {
 
 struct FileInformation {
     file_path: PathBuf,
-    filename: String,
-    contents: Vec<String>
+    file_name: String,
+    contents: Vec<String>,
 }
 
-struct Editor<'a, 'b>{
+struct Editor<'a, 'b> {
     edit_configuration: EditorConfiguration<'a, 'b>,
     edit_status: EditorStatus,
     file_information: FileInformation,
 }
 
+impl Editor<'_, '_> {
+    fn load_file(&self) -> Vec<String> {
+        if self.file_information.file_name == "" {
+            return Vec::new();
+        }
+        let mut file_lines: Vec<String> = Vec::new();
+        let mut threads: Vec<thread::JoinHandle<()>> = Vec::new();
+        if let Ok(lines) = self.read_lines(&self.file_information.file_path) {
+            let handle = thread::spawn(move || {
+                for line in lines {
+                    let mut h = HighlightLines::new(
+                        &self.edit_configuration.syntax,
+                        &self.edit_configuration.theme,
+                    );
+                    if let Ok(iterator) = line {
+                        let ranges: Vec<(Style, &str)> =
+                            h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
+                        let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
+                        file_lines.push(escaped);
+                    }
+                }
+            });
+            threads.push(handle);
+        }
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        file_lines
+    }
 
+    fn read_lines(&self, filename: &Path) -> Result<Lines<BufReader<File>>> {
+        let file = File::open(filename)?;
+        Ok(BufReader::new(file).lines())
+    }
+}
 
 fn get_file_name() -> String {
     let args: Vec<String> = env::args().collect();
@@ -58,36 +91,6 @@ fn get_file_name() -> String {
 fn print_help() {
     println!("Usage: edit [OPTIONS] [FILE]\n");
     println!("Option\tLong\tMeaning");
-}
-
-fn load_file(file_name: &String, syntax: &'static SyntaxReference, theme: &'static Theme) -> Vec<String> {
-    if file_name == "" { 
-        return Vec::new();
-    }
-    let mut file_lines: Vec<String> = Vec::new();
-    if let Ok(lines) = read_lines(Path::new(file_name.as_str())) {
-        let handle = thread::spawn(move || {
-        for line in lines {
-            let mut h = HighlightLines::new(&syntax, &theme);
-            if let Ok(iterator) = line {
-                let ranges: Vec<(Style, &str)> = h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
-                let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
-                // file_lines.push(escaped);
-                
-            }        
-        }
-        });
-        handle.join().unwrap();
-    }
-   
-    println!("Hello");
-    file_lines
-
-}
-
-fn read_lines(filename: &Path) -> Result<Lines<BufReader<File>>> {
-    let file = File::open(filename)?;
-    Ok(BufReader::new(file).lines())
 }
 
 fn create_editor_ui() -> termion::screen::AlternateScreen<
@@ -112,9 +115,16 @@ fn create_screen_overlay() -> termion::screen::AlternateScreen<
 fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
     let mut editor_status = &mut editor.edit_status;
     let file_information = &editor.file_information;
-    
-    for line in &file_information.contents[editor_status.display_begin_row as usize..editor_status.display_end_row as usize] {
-        write!(screen, "{}", termion::cursor::Goto(1, editor_status.cursor_row as u16)).unwrap();       
+
+    for line in &file_information.contents
+        [editor_status.display_begin_row as usize..editor_status.display_end_row as usize]
+    {
+        write!(
+            screen,
+            "{}",
+            termion::cursor::Goto(1, editor_status.cursor_row as u16)
+        )
+        .unwrap();
         println!("{}", line);
         editor_status.cursor_row += 1;
     }
@@ -161,7 +171,6 @@ fn handle_events(screen: &mut dyn Write) {
     }
 }
 
-//Figure Out Buffer!
 fn save_file(path: &str) -> File {
     let file = match File::create(Path::new(path)) {
         Err(why) => panic!("couldn't create {}: {}", path, why),
@@ -171,9 +180,9 @@ fn save_file(path: &str) -> File {
 }
 
 fn main() {
-    let filename = get_file_name();
+    let file_name = get_file_name();
     //TODO: Fix panic
-    let (_, file_extension) = filename.split_at(filename.find('.').unwrap() + 1); 
+    let (_, file_extension) = file_name.split_at(file_name.find('.').unwrap() + 1);
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let syntax = syntax_set.find_syntax_by_extension(file_extension).unwrap();
     let theme = &ThemeSet::load_defaults().themes["base16-ocean.dark"];
@@ -191,12 +200,13 @@ fn main() {
             saved: false,
         },
         file_information: FileInformation {
-            file_path: PathBuf::new(),
-            filename: filename.clone(),
-            contents: load_file(&filename, &syntax, &theme),
+            file_path: PathBuf::from(file_name.as_str()),
+            file_name: file_name,
+            contents: Vec::new(),
         },
     };
 
+    editor.load_file();
     let mut screen = create_editor_ui();
     display_file(&mut editor, &mut screen);
     handle_events(&mut screen);
