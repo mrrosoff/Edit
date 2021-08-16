@@ -4,6 +4,7 @@ use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
+use std::sync::Mutex;
 
 use termion::event::{Event, Key, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
@@ -41,33 +42,29 @@ struct Editor<'a, 'b> {
 }
 
 impl Editor<'_, '_> {
-    fn load_file(&self) -> Vec<String> {
-        if self.file_information.file_name == "" {
-            return Vec::new();
-        }
-        let mut file_lines: Vec<String> = Vec::new();
+    fn load_file(&self) {
+        let file_lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
         let mut threads: Vec<thread::JoinHandle<()>> = Vec::new();
         if let Ok(lines) = self.read_lines(&self.file_information.file_path) {
-            let handle = thread::spawn(move || {
-                for line in lines {
-                    let mut h = HighlightLines::new(
-                        &self.edit_configuration.syntax,
-                        &self.edit_configuration.theme,
-                    );
+            for line in lines {
+                let syntax = self.edit_configuration.syntax.clone();
+                let theme = self.edit_configuration.theme.clone();
+                let handle = thread::spawn(move || {
                     if let Ok(iterator) = line {
+                        let mut h = HighlightLines::new(&syntax, &theme);
                         let ranges: Vec<(Style, &str)> =
-                            h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
+                             h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
                         let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
-                        file_lines.push(escaped);
+                        let mut m_file_lines = file_lines.lock().unwrap();
+                        m_file_lines.push(escaped);
                     }
-                }
-            });
-            threads.push(handle);
+                });
+                threads.push(handle);
+            }
         }
         for thread in threads {
             thread.join().unwrap();
         }
-        file_lines
     }
 
     fn read_lines(&self, filename: &Path) -> Result<Lines<BufReader<File>>> {
