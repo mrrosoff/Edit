@@ -1,9 +1,9 @@
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{stdin, stdout, BufReader, Lines, Result, Write};
+use std::io::{stdin, stdout, BufReader, Lines, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use termion::event::{Event, Key, MouseEvent};
@@ -22,8 +22,8 @@ struct EditorConfiguration<'a, 'b> {
 }
 
 struct EditorStatus {
-    display_begin_row: u16,
-    display_end_row: u16,
+    display_begin_row: usize,
+    display_end_row: usize,
     cursor_row: u16,
     cursor_col: u16,
     saved: bool,
@@ -42,36 +42,41 @@ struct Editor<'a, 'b> {
 }
 
 impl Editor<'_, '_> {
-    fn load_file(&self) {
-        let file_lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    fn load_file(&mut self) {
+        let lines = self.read_lines(&self.file_information.file_path);
+        let syntax = Arc::new(Mutex::new(self.edit_configuration.syntax.clone()));
+        let theme = Arc::new(Mutex::new(self.edit_configuration.theme.clone()));
+
+        let file_lines = Arc::new(Mutex::new(Vec::new()));
         let mut threads: Vec<thread::JoinHandle<()>> = Vec::new();
-        if let Ok(lines) = self.read_lines(&self.file_information.file_path) {
-            let syntax: Mutex<SyntaxReference> = Mutex::new(self.edit_configuration.syntax.clone());
-            let theme: Mutex<Theme> = Mutex::new(self.edit_configuration.theme.clone());
-            for line in lines {
-                let handle = thread::spawn(move || {
-                    if let Ok(iterator) = line {
-                        let m_syntax = syntax.lock().unwrap();
-                        let m_theme = theme.lock().unwrap();
-                        let mut h = HighlightLines::new(&m_syntax, &m_theme);
-                        let ranges: Vec<(Style, &str)> =
-                            h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
-                        let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
-                        let mut m_file_lines = file_lines.lock().unwrap();
-                        m_file_lines.push(escaped);
-                    }
-                });
-                threads.push(handle);
-            }
+
+        for line in lines {
+            let file_lines = Arc::clone(&file_lines);
+            let syntax = Arc::clone(&syntax);
+            let theme = Arc::clone(&theme);
+            let handle = thread::spawn(move || {
+                if let Ok(iterator) = line {
+                    let syntax_ref = syntax.lock().unwrap();
+                    let theme_ref = theme.lock().unwrap();
+                    let mut h = HighlightLines::new(&*syntax_ref, &*theme_ref);
+                    let ranges: Vec<(Style, &str)> =
+                        h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
+                    let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
+                    let mut file_lines_ref = file_lines.lock().unwrap();
+                    file_lines_ref.push(escaped);
+                }
+            });
+            threads.push(handle);
         }
         for thread in threads {
             thread.join().unwrap();
         }
+        self.file_information.contents = (*file_lines.lock().unwrap()).clone();
     }
 
-    fn read_lines(&self, filename: &Path) -> Result<Lines<BufReader<File>>> {
-        let file = File::open(filename)?;
-        Ok(BufReader::new(file).lines())
+    fn read_lines(&self, filename: &Path) -> Lines<BufReader<File>> {
+        let file = File::open(filename).unwrap();
+        BufReader::new(file).lines()
     }
 }
 
@@ -112,28 +117,21 @@ fn create_screen_overlay() -> termion::screen::AlternateScreen<
 }
 
 fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
-    let mut editor_status = &mut editor.edit_status;
+    let editor_status = &mut editor.edit_status;
     let file_information = &editor.file_information;
 
-    for line in &file_information.contents
-        [editor_status.display_begin_row as usize..editor_status.display_end_row as usize]
+    let mut write_row = 0;
+    for line in
+        &file_information.contents[editor_status.display_begin_row..editor_status.display_end_row]
     {
-        write!(
-            screen,
-            "{}",
-            termion::cursor::Goto(1, editor_status.cursor_row as u16)
-        )
-        .unwrap();
-        println!("{}", line);
-        editor_status.cursor_row += 1;
+        write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap();
+        write_row += 1;
     }
     screen.flush().unwrap();
 }
 
-fn handle_events(screen: &mut dyn Write) {
+fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
     let stdin = stdin();
-    let mut cursor_row = 1;
-    let mut cursor_col = 1;
     for c in stdin.events() {
         let evt = c.unwrap();
         match evt {
@@ -143,18 +141,18 @@ fn handle_events(screen: &mut dyn Write) {
             }
             Event::Key(Key::Char(c)) => {
                 if c as i32 == 10 {
-                    cursor_row += 1;
-                    cursor_col = 0;
+                    editor.edit_status.cursor_row += 1;
+                    editor.edit_status.cursor_col = 0;
                 }
-                cursor_col += 1;
+                editor.edit_status.cursor_col += 1;
                 print!("{}", c)
             }
-            Event::Key(Key::Left) => cursor_col -= 1,
-            Event::Key(Key::Right) => cursor_col += 1,
-            Event::Key(Key::Up) => cursor_row -= 1,
-            Event::Key(Key::Down) => cursor_row += 1,
+            Event::Key(Key::Left) => editor.edit_status.cursor_col -= 1,
+            Event::Key(Key::Right) => editor.edit_status.cursor_col += 1,
+            Event::Key(Key::Up) => editor.edit_status.cursor_row -= 1,
+            Event::Key(Key::Down) => editor.edit_status.cursor_row += 1,
             Event::Key(Key::Backspace) => {
-                cursor_col -= 1;
+                editor.edit_status.cursor_col -= 1;
             }
             Event::Mouse(me) => match me {
                 MouseEvent::Press(_, x, y) => {
@@ -165,7 +163,12 @@ fn handle_events(screen: &mut dyn Write) {
             },
             _ => {}
         }
-        write!(screen, "{}", termion::cursor::Goto(cursor_col, cursor_row)).unwrap();
+        write!(
+            screen,
+            "{}",
+            termion::cursor::Goto(editor.edit_status.cursor_col, editor.edit_status.cursor_row)
+        )
+        .unwrap();
         screen.flush().unwrap();
     }
 }
@@ -193,8 +196,8 @@ fn main() {
         },
         edit_status: EditorStatus {
             display_begin_row: 0,
-            display_end_row: 3,
-            cursor_row: 3,
+            display_end_row: 10,
+            cursor_row: 2,
             cursor_col: 1,
             saved: false,
         },
@@ -208,5 +211,5 @@ fn main() {
     editor.load_file();
     let mut screen = create_editor_ui();
     display_file(&mut editor, &mut screen);
-    handle_events(&mut screen);
+    handle_events(&mut editor, &mut screen);
 }
