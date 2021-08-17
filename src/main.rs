@@ -10,6 +10,7 @@ use termion::event::{Event, Key, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
 use termion::raw::IntoRawMode;
 use termion::screen::*;
+use termion::terminal_size;
 
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, Theme, ThemeSet};
@@ -22,6 +23,8 @@ struct EditorConfiguration<'a, 'b> {
 }
 
 struct EditorStatus {
+    width: u16,
+    height: u16,
     display_begin_row: usize,
     display_end_row: usize,
     cursor_row: u16,
@@ -120,13 +123,20 @@ fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
     let editor_status = &mut editor.edit_status;
     let file_information = &editor.file_information;
 
-    let mut write_row = 0;
-    for line in
-        &file_information.contents[editor_status.display_begin_row..editor_status.display_end_row]
+    write!(screen, "{}", termion::clear::All).unwrap();
+    let mut write_row = 3;
+    for line in &file_information.contents
+        [editor_status.display_begin_row..editor_status.display_end_row - 2]
     {
         write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap();
         write_row += 1;
     }
+    write!(
+        screen,
+        "{}",
+        termion::cursor::Goto(editor_status.cursor_col, editor_status.cursor_row)
+    )
+    .unwrap();
     screen.flush().unwrap();
 }
 
@@ -147,11 +157,45 @@ fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
                 editor.edit_status.cursor_col += 1;
                 print!("{}", c)
             }
-            Event::Key(Key::Left) => editor.edit_status.cursor_col -= 1,
-            Event::Key(Key::Right) => editor.edit_status.cursor_col += 1,
-            Event::Key(Key::Up) => editor.edit_status.cursor_row -= 1,
-            Event::Key(Key::Down) => editor.edit_status.cursor_row += 1,
+            Event::Key(Key::Left) => {
+                if editor.edit_status.cursor_col == 0 {
+                    continue;
+                }
+                editor.edit_status.cursor_col -= 1;
+            }
+            Event::Key(Key::Right) => {
+                if editor.edit_status.cursor_col == editor.edit_status.width - 1 {
+                    continue;
+                }
+                editor.edit_status.cursor_col += 1
+            }
+            Event::Key(Key::Up) => {
+                if editor.edit_status.cursor_row == editor.edit_status.display_begin_row as u16 {
+                    if editor.edit_status.cursor_row == 0 {
+                        continue;
+                    }
+                    editor.edit_status.display_begin_row -= 1;
+                    editor.edit_status.display_end_row -= 1;
+                }
+                editor.edit_status.cursor_row -= 1;
+            }
+            Event::Key(Key::Down) => {
+                if editor.edit_status.cursor_row == editor.edit_status.display_end_row as u16 - 1 {
+                    if editor.edit_status.cursor_row
+                        == editor.file_information.contents.len() as u16 - 1
+                    {
+                        continue;
+                    }
+                    editor.edit_status.display_begin_row += 1;
+                    editor.edit_status.display_end_row += 1;
+                    continue;
+                }
+                editor.edit_status.cursor_row += 1;
+            }
             Event::Key(Key::Backspace) => {
+                if editor.edit_status.cursor_col == 0 {
+                    continue;
+                }
                 editor.edit_status.cursor_col -= 1;
             }
             Event::Mouse(me) => match me {
@@ -163,13 +207,7 @@ fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
             },
             _ => {}
         }
-        write!(
-            screen,
-            "{}",
-            termion::cursor::Goto(editor.edit_status.cursor_col, editor.edit_status.cursor_row)
-        )
-        .unwrap();
-        screen.flush().unwrap();
+        display_file(editor, screen);
     }
 }
 
@@ -188,6 +226,7 @@ fn main() {
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let syntax = syntax_set.find_syntax_by_extension(file_extension).unwrap();
     let theme = &ThemeSet::load_defaults().themes["base16-ocean.dark"];
+    let terminal_size = terminal_size().unwrap();
 
     let mut editor = Editor {
         edit_configuration: EditorConfiguration {
@@ -195,8 +234,10 @@ fn main() {
             theme: theme,
         },
         edit_status: EditorStatus {
+            width: terminal_size.0,
+            height: terminal_size.1,
             display_begin_row: 0,
-            display_end_row: 10,
+            display_end_row: terminal_size.1 as usize,
             cursor_row: 2,
             cursor_col: 1,
             saved: false,
