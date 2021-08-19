@@ -1,5 +1,5 @@
 use std::env;
-use std::fs::File;
+use std::fs;
 use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Lines, Write};
 use std::path::{Path, PathBuf};
@@ -46,40 +46,17 @@ struct Editor<'a, 'b> {
 
 impl Editor<'_, '_> {
     fn load_file(&mut self) {
-        let lines = self.read_lines(&self.file_information.file_path);
-        let syntax = Arc::new(Mutex::new(self.edit_configuration.syntax.clone()));
-        let theme = Arc::new(Mutex::new(self.edit_configuration.theme.clone()));
-
-        let file_lines = Arc::new(Mutex::new(Vec::new()));
-        let mut threads: Vec<thread::JoinHandle<()>> = Vec::new();
-
-        for line in lines {
-            let file_lines = Arc::clone(&file_lines);
-            let syntax = Arc::clone(&syntax);
-            let theme = Arc::clone(&theme);
-            let handle = thread::spawn(move || {
-                if let Ok(iterator) = line {
-                    let syntax_ref = syntax.lock().unwrap();
-                    let theme_ref = theme.lock().unwrap();
-                    let mut h = HighlightLines::new(&*syntax_ref, &*theme_ref);
-                    let ranges: Vec<(Style, &str)> =
-                        h.highlight(iterator.as_str(), &SyntaxSet::load_defaults_newlines());
-                    let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
-                    let mut file_lines_ref = file_lines.lock().unwrap();
-                    file_lines_ref.push(escaped);
-                }
-            });
-            threads.push(handle);
-        }
-        for thread in threads {
-            thread.join().unwrap();
-        }
-        self.file_information.contents = (*file_lines.lock().unwrap()).clone();
-    }
-
-    fn read_lines(&self, filename: &Path) -> Lines<BufReader<File>> {
-        let file = File::open(filename).unwrap();
-        BufReader::new(file).lines()
+        let file = fs::read_to_string(&self.file_information.file_path).unwrap();
+        let mut highlighter = HighlightLines::new(
+            &self.edit_configuration.syntax,
+            &self.edit_configuration.theme,
+        );
+        let ranges: Vec<(Style, &str)> =
+            highlighter.highlight(file.as_str(), &SyntaxSet::load_defaults_newlines());
+        let escaped = as_24_bit_terminal_escaped(&ranges[..], true);
+        let split_string = escaped.lines();
+        let highlighted_lines: Vec<String> = split_string.map(|s| s.to_string()).collect();
+        self.file_information.contents = highlighted_lines.clone();
     }
 }
 
@@ -211,8 +188,8 @@ fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
     }
 }
 
-fn save_file(path: &str) -> File {
-    let file = match File::create(Path::new(path)) {
+fn save_file(path: &str) -> fs::File {
+    let file = match fs::File::create(Path::new(path)) {
         Err(why) => panic!("couldn't create {}: {}", path, why),
         Ok(file) => file,
     };
