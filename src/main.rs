@@ -39,16 +39,16 @@ struct FileInformation {
 }
 
 struct Editor<'a, 'b> {
-    edit_configuration: EditorConfiguration<'a, 'b>,
-    edit_status: EditorStatus,
+    editor_configuration: EditorConfiguration<'a, 'b>,
+    editor_status: EditorStatus,
     file_information: FileInformation,
 }
 
 impl Editor<'_, '_> {
     fn load_file(&mut self) {
         let lines = self.read_lines(&self.file_information.file_path);
-        let syntax = Arc::new(Mutex::new(self.edit_configuration.syntax.clone()));
-        let theme = Arc::new(Mutex::new(self.edit_configuration.theme.clone()));
+        let syntax = Arc::new(Mutex::new(self.editor_configuration.syntax.clone()));
+        let theme = Arc::new(Mutex::new(self.editor_configuration.theme.clone()));
 
         let file_lines = Arc::new(Mutex::new(Vec::new()));
         let mut threads: Vec<thread::JoinHandle<()>> = Vec::new();
@@ -75,6 +75,9 @@ impl Editor<'_, '_> {
             thread.join().unwrap();
         }
         self.file_information.contents = (*file_lines.lock().unwrap()).clone();
+        if self.file_information.contents.len() < self.editor_status.display_end_row {
+            self.editor_status.display_end_row = self.file_information.contents.len();
+        }
     }
 
     fn read_lines(&self, filename: &Path) -> Lines<BufReader<File>> {
@@ -120,9 +123,9 @@ fn create_screen_overlay() -> termion::screen::AlternateScreen<
 }
 
 fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
-    let editor_status = &mut editor.edit_status;
+    let editor_status = &mut editor.editor_status;
     let file_information = &editor.file_information;
-
+    
     write!(screen, "{}", termion::clear::All).unwrap();
     let mut write_row = 3;
     for line in &file_information.contents
@@ -151,52 +154,50 @@ fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
             }
             Event::Key(Key::Char(c)) => {
                 if c as i32 == 10 {
-                    editor.edit_status.cursor_row += 1;
-                    editor.edit_status.cursor_col = 0;
+                    editor.editor_status.cursor_row += 1;
+                    editor.editor_status.cursor_col = 0;
                 }
-                editor.edit_status.cursor_col += 1;
-                print!("{}", c)
+                editor.editor_status.cursor_col += 1;
+                print!("{}", c);
+                screen.flush().unwrap();
             }
             Event::Key(Key::Left) => {
-                if editor.edit_status.cursor_col == 0 {
-                    continue;
+                if editor.editor_status.cursor_col != 0 {
+                    editor.editor_status.cursor_col -= 1;
+                    display_file(editor, screen);
                 }
-                editor.edit_status.cursor_col -= 1;
             }
             Event::Key(Key::Right) => {
-                if editor.edit_status.cursor_col == editor.edit_status.width - 1 {
-                    continue;
+                if editor.editor_status.cursor_col != editor.editor_status.width - 1 {
+                    editor.editor_status.cursor_col += 1;
+                    display_file(editor, screen);
                 }
-                editor.edit_status.cursor_col += 1
             }
             Event::Key(Key::Up) => {
-                if editor.edit_status.cursor_row == editor.edit_status.display_begin_row as u16 {
-                    if editor.edit_status.cursor_row == 0 {
-                        continue;
+                if editor.editor_status.cursor_row != 0 {
+                    if editor.editor_status.cursor_row == editor.editor_status.display_begin_row as u16{
+                        editor.editor_status.display_begin_row -= 1;
+                        editor.editor_status.display_end_row -= 1;
                     }
-                    editor.edit_status.display_begin_row -= 1;
-                    editor.edit_status.display_end_row -= 1;
+                    editor.editor_status.cursor_row -= 1;
+                    display_file(editor, screen);
                 }
-                editor.edit_status.cursor_row -= 1;
             }
             Event::Key(Key::Down) => {
-                if editor.edit_status.cursor_row == editor.edit_status.display_end_row as u16 - 1 {
-                    if editor.edit_status.cursor_row
-                        == editor.file_information.contents.len() as u16 - 1
-                    {
-                        continue;
+                if editor.editor_status.cursor_row != editor.file_information.contents.len() as u16 - 1 {
+                    if editor.editor_status.cursor_row == editor.editor_status.display_end_row as u16 {
+                        editor.editor_status.display_begin_row += 1;
+                        editor.editor_status.display_end_row += 1;
                     }
-                    editor.edit_status.display_begin_row += 1;
-                    editor.edit_status.display_end_row += 1;
-                    continue;
-                }
-                editor.edit_status.cursor_row += 1;
+                    editor.editor_status.cursor_row += 1;
+                    display_file(editor, screen);
+                } 
             }
             Event::Key(Key::Backspace) => {
-                if editor.edit_status.cursor_col == 0 {
-                    continue;
-                }
-                editor.edit_status.cursor_col -= 1;
+                if editor.editor_status.cursor_col != 0 {
+                    editor.editor_status.cursor_col -= 1;
+                    display_file(editor, screen);
+                } 
             }
             Event::Mouse(me) => match me {
                 MouseEvent::Press(_, x, y) => {
@@ -207,7 +208,8 @@ fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
             },
             _ => {}
         }
-        display_file(editor, screen);
+        
+        
     }
 }
 
@@ -229,15 +231,15 @@ fn main() {
     let terminal_size = terminal_size().unwrap();
 
     let mut editor = Editor {
-        edit_configuration: EditorConfiguration {
+        editor_configuration: EditorConfiguration {
             syntax: syntax,
             theme: theme,
         },
-        edit_status: EditorStatus {
+        editor_status: EditorStatus {
             width: terminal_size.0,
             height: terminal_size.1,
             display_begin_row: 0,
-            display_end_row: terminal_size.1 as usize,
+            display_end_row: terminal_size.1 as usize, //terminal_size.1 as usize does not work for small files. needs to be total lines or terminal size. The smaller.
             cursor_row: 2,
             cursor_col: 1,
             saved: false,
@@ -248,8 +250,10 @@ fn main() {
             contents: Vec::new(),
         },
     };
-
+    
     editor.load_file();
+
+    println!("{}", editor.file_information.contents.len());
     let mut screen = create_editor_ui();
     display_file(&mut editor, &mut screen);
     handle_events(&mut editor, &mut screen);
