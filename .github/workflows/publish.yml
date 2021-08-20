@@ -1,0 +1,22 @@
+name: Rust
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run Tests
+      run: cargo test --verbose
+    - name: Login
+      run: cargo login ${{ secrets.CARGO_LOGIN }}
+    - name: Publish
+      run: cargo publish
