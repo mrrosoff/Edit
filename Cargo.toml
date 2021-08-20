@@ -9,5 +9,5 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-termion = "*"
+termion = "1.5.6"
 syntect = "4.4"
