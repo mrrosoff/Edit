@@ -1,4 +1,4 @@
-name: Rust
+name: Publish
 
 on:
   push:
@@ -9,14 +9,14 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v2
+    - name: Check Compilation
+      run: cargo build --verbose
     - name: Run Tests
       run: cargo test --verbose
-    - name: Login
+    - name: Login To crates.io
       run: cargo login ${{ secrets.CARGO_LOGIN }}
-    - name: Publish
+    - name: Publish To crates.io
       run: cargo publish

@@ -1,8 +1,10 @@
 [package]
 name = "edit"
 version = "0.1.0"
-authors = ["Max Rosoff me@maxrosoff.com"]
+authors = ["Max Rosoff me@maxrosoff.com", "Matthew Ernst matthew.f.ernst@gmail.com"]
 edition = "2018"
+description = "A Customizable Rust Based Terminal Editor"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

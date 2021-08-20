@@ -1,4 +1,4 @@
-name: Rust
+name: Test
 
 on:
   pull_request:
@@ -9,12 +9,8 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
     - name: Run Tests
       run: cargo test --verbose
