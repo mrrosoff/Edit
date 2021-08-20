@@ -17,6 +17,6 @@ jobs:
     - name: Run Tests
       run: cargo test --verbose
     - name: Login To crates.io
-      run: cargo login ${{ secrets.CARGO_LOGIN }}
+      run: cargo login ${{ secrets.CRATES_LOGIN }}
     - name: Publish To crates.io
       run: cargo publish
