@@ -98,16 +98,16 @@ fn create_screen_overlay() -> termion::screen::AlternateScreen<
     screen
 }
 
-fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
+fn repaint_file(editor: &mut Editor, screen: &mut dyn Write) {
     let editor_status = &mut editor.editor_status;
     let file_information = &editor.file_information;
     
     write!(screen, "{}", termion::clear::All).unwrap();
-    let mut write_row = 3;
+    let mut write_row = EDITOR_NAME_OFFSET as u16;
     for line in &file_information.contents
         [editor_status.display_begin_row..editor_status.display_end_row - EDITOR_NAME_OFFSET]
     {
-        write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap();
+        write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap(); //need to hide the cursor termion::cursor::HideCursor
         write_row += 1;
     }
     write!(
@@ -116,6 +116,13 @@ fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
         termion::cursor::Goto(editor_status.cursor_col, editor_status.cursor_row)
     )
     .unwrap();
+    screen.flush().unwrap();
+}
+
+fn repaint_movement(editor: &mut Editor, screen: &mut dyn Write) {
+    let editor_status = &mut editor.editor_status;
+    
+    write!(screen, "{}",termion::cursor::Goto(editor_status.cursor_col, editor_status.cursor_row)).unwrap();
     screen.flush().unwrap();
 }
 
@@ -153,13 +160,13 @@ fn handle_key_movements(editor: &mut Editor, screen: &mut dyn Write, input: &ter
         Event::Key(Key::Left) => {
             if editor.editor_status.cursor_col != 0 {
                 editor.editor_status.cursor_col -= 1;
-                display_file(editor, screen);
+                repaint_movement(editor, screen);
             }
         }
         Event::Key(Key::Right) => {
             if editor.editor_status.cursor_col != editor.editor_status.width - 1 {
                 editor.editor_status.cursor_col += 1;
-                display_file(editor, screen);
+                repaint_movement(editor, screen);
             }
         }
         Event::Key(Key::Up) => {
@@ -167,9 +174,10 @@ fn handle_key_movements(editor: &mut Editor, screen: &mut dyn Write, input: &ter
                 if editor.editor_status.cursor_row == editor.editor_status.display_begin_row as u16{
                     editor.editor_status.display_begin_row -= 1;
                     editor.editor_status.display_end_row -= 1;
+                    repaint_file(editor, screen);
                 }
                 editor.editor_status.cursor_row -= 1;
-                display_file(editor, screen);
+                repaint_movement(editor, screen);
             }
         }
         Event::Key(Key::Down) => {
@@ -177,15 +185,16 @@ fn handle_key_movements(editor: &mut Editor, screen: &mut dyn Write, input: &ter
                 if editor.editor_status.cursor_row == editor.editor_status.display_end_row as u16 {
                     editor.editor_status.display_begin_row += 1;
                     editor.editor_status.display_end_row += 1;
+                    repaint_file(editor, screen);
                 }
                 editor.editor_status.cursor_row += 1;
-                display_file(editor, screen);
+                repaint_movement(editor, screen);
             } 
         }
         Event::Key(Key::Backspace) => {
             if editor.editor_status.cursor_col != 0 {
                 editor.editor_status.cursor_col -= 1;
-                display_file(editor, screen);
+                repaint_movement(editor, screen);
             } 
         }
         _ => {return false;}
@@ -258,6 +267,6 @@ fn main() {
     editor.load_file();
 
     let mut screen = create_editor_ui();
-    display_file(&mut editor, &mut screen);
+    repaint_file(&mut editor, &mut screen);
     handle_events(&mut editor, &mut screen);
 }
