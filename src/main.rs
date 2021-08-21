@@ -1,10 +1,7 @@
 use std::env;
 use std::fs;
-use std::io::prelude::*;
-use std::io::{stdin, stdout, BufReader, Lines, Write};
+use std::io::{stdin, stdout, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::thread;
 
 use termion::event::{Event, Key, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
@@ -16,6 +13,8 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, Theme, ThemeSet};
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::as_24_bit_terminal_escaped;
+
+const EDITOR_NAME_OFFSET: usize = 2;
 
 struct EditorConfiguration<'a, 'b> {
     syntax: &'b SyntaxReference,
@@ -57,6 +56,9 @@ impl Editor<'_, '_> {
         let split_string = escaped.lines();
         let highlighted_lines: Vec<String> = split_string.map(|s| s.to_string()).collect();
         self.file_information.contents = highlighted_lines.clone();
+        if self.editor_status.display_end_row > self.file_information.contents.len() {
+            self.editor_status.display_end_row = self.file_information.contents.len() + EDITOR_NAME_OFFSET;
+        }
     }
 }
 
@@ -103,7 +105,7 @@ fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
     write!(screen, "{}", termion::clear::All).unwrap();
     let mut write_row = 3;
     for line in &file_information.contents
-        [editor_status.display_begin_row..editor_status.display_end_row - 2]
+        [editor_status.display_begin_row..editor_status.display_end_row - EDITOR_NAME_OFFSET]
     {
         write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap();
         write_row += 1;
@@ -120,71 +122,99 @@ fn display_file(editor: &mut Editor, screen: &mut dyn Write) {
 fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
     let stdin = stdin();
     for c in stdin.events() {
-        let evt = c.unwrap();
-        match evt {
-            Event::Key(Key::Ctrl('q')) => break,
-            Event::Key(Key::Ctrl('s')) => {
-                save_file("Hi.txt");
+        let input = c.unwrap();
+        if handle_editing(editor, screen, &input) || handle_key_movements(editor, screen, &input) 
+            || handle_hot_keys(&input) || handle_special_movements(screen, &input) {
+            continue;
+        } else if input == Event::Key(Key::Ctrl('q')) {
+            break;
+        } 
+    }
+}
+
+fn handle_editing(editor: &mut Editor, screen: &mut dyn Write, input: &termion::event::Event) -> bool {
+    match input {
+        Event::Key(Key::Char(c)) => {
+            if *c as i32 == 10 {
+                editor.editor_status.cursor_row += 1;
+                editor.editor_status.cursor_col = 0;
             }
-            Event::Key(Key::Char(c)) => {
-                if c as i32 == 10 {
-                    editor.editor_status.cursor_row += 1;
-                    editor.editor_status.cursor_col = 0;
-                }
+            editor.editor_status.cursor_col += 1;
+            print!("{}", c);
+            screen.flush().unwrap();
+        }
+        _ => {return false;}
+    }
+    return true;
+}
+
+fn handle_key_movements(editor: &mut Editor, screen: &mut dyn Write, input: &termion::event::Event) -> bool {
+    match input {
+        Event::Key(Key::Left) => {
+            if editor.editor_status.cursor_col != 0 {
+                editor.editor_status.cursor_col -= 1;
+                display_file(editor, screen);
+            }
+        }
+        Event::Key(Key::Right) => {
+            if editor.editor_status.cursor_col != editor.editor_status.width - 1 {
                 editor.editor_status.cursor_col += 1;
-                print!("{}", c);
+                display_file(editor, screen);
+            }
+        }
+        Event::Key(Key::Up) => {
+            if editor.editor_status.cursor_row != 0 {
+                if editor.editor_status.cursor_row == editor.editor_status.display_begin_row as u16{
+                    editor.editor_status.display_begin_row -= 1;
+                    editor.editor_status.display_end_row -= 1;
+                }
+                editor.editor_status.cursor_row -= 1;
+                display_file(editor, screen);
+            }
+        }
+        Event::Key(Key::Down) => {
+            if editor.editor_status.cursor_row != editor.file_information.contents.len() as u16 + EDITOR_NAME_OFFSET as u16 {
+                if editor.editor_status.cursor_row == editor.editor_status.display_end_row as u16 {
+                    editor.editor_status.display_begin_row += 1;
+                    editor.editor_status.display_end_row += 1;
+                }
+                editor.editor_status.cursor_row += 1;
+                display_file(editor, screen);
+            } 
+        }
+        Event::Key(Key::Backspace) => {
+            if editor.editor_status.cursor_col != 0 {
+                editor.editor_status.cursor_col -= 1;
+                display_file(editor, screen);
+            } 
+        }
+        _ => {return false;}
+    } 
+    return true;
+}
+
+fn handle_hot_keys(input: &termion::event::Event) -> bool{
+    match input {
+        Event::Key(Key::Ctrl('s')) => {
+            save_file("Hi.txt");
+        }
+        _ => {return false;}
+    }
+    return true;
+}
+
+fn handle_special_movements(screen: &mut dyn Write, input: &termion::event::Event) -> bool{
+    match input {
+        Event::Mouse(me) => match me {
+            MouseEvent::Press(_, x, y) => {
+                write!(screen, "{}", termion::cursor::Goto(*x, *y)).unwrap();
                 screen.flush().unwrap();
             }
-            Event::Key(Key::Left) => {
-                if editor.editor_status.cursor_col != 0 {
-                    editor.editor_status.cursor_col -= 1;
-                    display_file(editor, screen);
-                }
-            }
-            Event::Key(Key::Right) => {
-                if editor.editor_status.cursor_col != editor.editor_status.width - 1 {
-                    editor.editor_status.cursor_col += 1;
-                    display_file(editor, screen);
-                }
-            }
-            Event::Key(Key::Up) => {
-                if editor.editor_status.cursor_row != 0 {
-                    if editor.editor_status.cursor_row == editor.editor_status.display_begin_row as u16{
-                        editor.editor_status.display_begin_row -= 1;
-                        editor.editor_status.display_end_row -= 1;
-                    }
-                    editor.editor_status.cursor_row -= 1;
-                    display_file(editor, screen);
-                }
-            }
-            Event::Key(Key::Down) => {
-                if editor.editor_status.cursor_row != editor.file_information.contents.len() as u16 - 1 {
-                    if editor.editor_status.cursor_row == editor.editor_status.display_end_row as u16 {
-                        editor.editor_status.display_begin_row += 1;
-                        editor.editor_status.display_end_row += 1;
-                    }
-                    editor.editor_status.cursor_row += 1;
-                    display_file(editor, screen);
-                } 
-            }
-            Event::Key(Key::Backspace) => {
-                if editor.editor_status.cursor_col != 0 {
-                    editor.editor_status.cursor_col -= 1;
-                    display_file(editor, screen);
-                } 
-            }
-            Event::Mouse(me) => match me {
-                MouseEvent::Press(_, x, y) => {
-                    write!(screen, "{}", termion::cursor::Goto(x, y)).unwrap();
-                    screen.flush().unwrap();
-                }
-                _ => (),
-            },
             _ => {}
         }
-        
-        
+        _ => {return false;}
     }
+    return true;
 }
 
 fn save_file(path: &str) -> fs::File {
@@ -227,7 +257,6 @@ fn main() {
     
     editor.load_file();
 
-    println!("{}", editor.file_information.contents.len());
     let mut screen = create_editor_ui();
     display_file(&mut editor, &mut screen);
     handle_events(&mut editor, &mut screen);
