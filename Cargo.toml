@@ -1,6 +1,6 @@
 [package]
 name = "kumquat"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Max Rosoff me@maxrosoff.com", "Matthew Ernst matthew.f.ernst@gmail.com"]
 edition = "2018"
 description = "A Customizable Rust Based Terminal Editor"
