@@ -145,7 +145,7 @@ fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
         if handle_editing(editor, screen, &input)
             || handle_key_movements(editor, screen, &input)
             || handle_hot_keys(&input)
-            || handle_special_movements(screen, &input)
+            || handle_special_movements(editor, screen, &input)
         {
             continue;
         } else if input == Event::Key(Key::Ctrl('q')) {
@@ -243,12 +243,14 @@ fn handle_hot_keys(input: &termion::event::Event) -> bool {
     return true;
 }
 
-fn handle_special_movements(screen: &mut dyn Write, input: &termion::event::Event) -> bool {
+fn handle_special_movements(editor: &mut Editor, screen: &mut dyn Write, input: &termion::event::Event) -> bool {
     match input {
         Event::Mouse(me) => match me {
             MouseEvent::Press(_, x, y) => {
                 write!(screen, "{}", termion::cursor::Goto(*x, *y)).unwrap();
                 screen.flush().unwrap();
+                editor.editor_status.cursor_col = *x as usize;
+                editor.editor_status.cursor_row = *y as usize;
             }
             _ => {}
         },
