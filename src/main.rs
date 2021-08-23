@@ -102,19 +102,22 @@ fn repaint_file(editor: &mut Editor, screen: &mut dyn Write) {
     let file_information = &editor.file_information;
     write!(screen, "{}", termion::clear::All).unwrap();
     let mut write_row = EDITOR_NAME_OFFSET as u16;
+
+    write!(screen, "{}", termion::cursor::Hide).unwrap();
     for line in &file_information.contents
         [editor_status.display_begin_row..editor_status.display_end_row - EDITOR_NAME_OFFSET]
     {
-        write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap(); //need to hide the cursor termion::cursor::HideCursor
+        write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap();
         write_row += 1;
     }
     write!(
         screen,
-        "{}",
+        "{}{}",
         termion::cursor::Goto(
             editor_status.cursor_col as u16,
             editor_status.cursor_row as u16
-        )
+        ),
+        termion::cursor::Show
     )
     .unwrap();
     screen.flush().unwrap();
