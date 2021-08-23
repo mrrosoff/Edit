@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io;
 use std::io::{stdin, stdout, Write};
 use std::path::{Path, PathBuf};
 
@@ -22,12 +23,12 @@ struct EditorConfiguration<'a, 'b> {
 }
 
 struct EditorStatus {
-    width: u16,
-    height: u16,
+    width: usize,
+    height: usize,
     display_begin_row: usize,
     display_end_row: usize,
-    cursor_row: u16,
-    cursor_col: u16,
+    cursor_row: usize,
+    cursor_col: usize,
     saved: bool,
 }
 
@@ -57,20 +58,18 @@ impl Editor<'_, '_> {
         let highlighted_lines: Vec<String> = split_string.map(|s| s.to_string()).collect();
         self.file_information.contents = highlighted_lines.clone();
         if self.editor_status.display_end_row > self.file_information.contents.len() {
-            self.editor_status.display_end_row = self.file_information.contents.len() + EDITOR_NAME_OFFSET;
+            self.editor_status.display_end_row =
+                self.file_information.contents.len() + EDITOR_NAME_OFFSET;
         }
     }
 }
 
-fn get_file_name() -> String {
+fn get_file_name() -> Result<String, io::Error> {
     let args: Vec<String> = env::args().collect();
     match args.len() {
-        1 => String::new(),
-        2 => String::from(&args[1]),
-        _ => {
-            print_help();
-            String::new()
-        }
+        1 => Ok(String::new()),
+        2 => Ok(String::from(&args[1])),
+        _ => Err(io::Error::from(io::ErrorKind::InvalidInput))
     }
 }
 
@@ -101,7 +100,6 @@ fn create_screen_overlay() -> termion::screen::AlternateScreen<
 fn repaint_file(editor: &mut Editor, screen: &mut dyn Write) {
     let editor_status = &mut editor.editor_status;
     let file_information = &editor.file_information;
-    
     write!(screen, "{}", termion::clear::All).unwrap();
     let mut write_row = EDITOR_NAME_OFFSET as u16;
     for line in &file_information.contents
@@ -113,7 +111,10 @@ fn repaint_file(editor: &mut Editor, screen: &mut dyn Write) {
     write!(
         screen,
         "{}",
-        termion::cursor::Goto(editor_status.cursor_col, editor_status.cursor_row)
+        termion::cursor::Goto(
+            editor_status.cursor_col as u16,
+            editor_status.cursor_row as u16
+        )
     )
     .unwrap();
     screen.flush().unwrap();
@@ -121,8 +122,16 @@ fn repaint_file(editor: &mut Editor, screen: &mut dyn Write) {
 
 fn repaint_movement(editor: &mut Editor, screen: &mut dyn Write) {
     let editor_status = &mut editor.editor_status;
-    
-    write!(screen, "{}",termion::cursor::Goto(editor_status.cursor_col, editor_status.cursor_row)).unwrap();
+
+    write!(
+        screen,
+        "{}",
+        termion::cursor::Goto(
+            editor_status.cursor_col as u16,
+            editor_status.cursor_row as u16
+        )
+    )
+    .unwrap();
     screen.flush().unwrap();
 }
 
@@ -130,16 +139,23 @@ fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
     let stdin = stdin();
     for c in stdin.events() {
         let input = c.unwrap();
-        if handle_editing(editor, screen, &input) || handle_key_movements(editor, screen, &input) 
-            || handle_hot_keys(&input) || handle_special_movements(screen, &input) {
+        if handle_editing(editor, screen, &input)
+            || handle_key_movements(editor, screen, &input)
+            || handle_hot_keys(&input)
+            || handle_special_movements(screen, &input)
+        {
             continue;
         } else if input == Event::Key(Key::Ctrl('q')) {
             break;
-        } 
+        }
     }
 }
 
-fn handle_editing(editor: &mut Editor, screen: &mut dyn Write, input: &termion::event::Event) -> bool {
+fn handle_editing(
+    editor: &mut Editor,
+    screen: &mut dyn Write,
+    input: &termion::event::Event,
+) -> bool {
     match input {
         Event::Key(Key::Char(c)) => {
             if *c as i32 == 10 {
@@ -150,12 +166,18 @@ fn handle_editing(editor: &mut Editor, screen: &mut dyn Write, input: &termion::
             print!("{}", c);
             screen.flush().unwrap();
         }
-        _ => {return false;}
+        _ => {
+            return false;
+        }
     }
     return true;
 }
 
-fn handle_key_movements(editor: &mut Editor, screen: &mut dyn Write, input: &termion::event::Event) -> bool {
+fn handle_key_movements(
+    editor: &mut Editor,
+    screen: &mut dyn Write,
+    input: &termion::event::Event,
+) -> bool {
     match input {
         Event::Key(Key::Left) => {
             if editor.editor_status.cursor_col != 0 {
@@ -171,7 +193,7 @@ fn handle_key_movements(editor: &mut Editor, screen: &mut dyn Write, input: &ter
         }
         Event::Key(Key::Up) => {
             if editor.editor_status.cursor_row != 0 {
-                if editor.editor_status.cursor_row == editor.editor_status.display_begin_row as u16{
+                if editor.editor_status.cursor_row == editor.editor_status.display_begin_row {
                     editor.editor_status.display_begin_row -= 1;
                     editor.editor_status.display_end_row -= 1;
                     repaint_file(editor, screen);
@@ -181,38 +203,44 @@ fn handle_key_movements(editor: &mut Editor, screen: &mut dyn Write, input: &ter
             }
         }
         Event::Key(Key::Down) => {
-            if editor.editor_status.cursor_row != editor.file_information.contents.len() as u16 + EDITOR_NAME_OFFSET as u16 {
-                if editor.editor_status.cursor_row == editor.editor_status.display_end_row as u16 {
+            if editor.editor_status.cursor_row
+                != editor.file_information.contents.len() + EDITOR_NAME_OFFSET
+            {
+                if editor.editor_status.cursor_row == editor.editor_status.display_end_row {
                     editor.editor_status.display_begin_row += 1;
                     editor.editor_status.display_end_row += 1;
                     repaint_file(editor, screen);
                 }
                 editor.editor_status.cursor_row += 1;
                 repaint_movement(editor, screen);
-            } 
+            }
         }
         Event::Key(Key::Backspace) => {
             if editor.editor_status.cursor_col != 0 {
                 editor.editor_status.cursor_col -= 1;
                 repaint_movement(editor, screen);
-            } 
+            }
         }
-        _ => {return false;}
-    } 
-    return true;
-}
-
-fn handle_hot_keys(input: &termion::event::Event) -> bool{
-    match input {
-        Event::Key(Key::Ctrl('s')) => {
-            save_file("Hi.txt");
+        _ => {
+            return false;
         }
-        _ => {return false;}
     }
     return true;
 }
 
-fn handle_special_movements(screen: &mut dyn Write, input: &termion::event::Event) -> bool{
+fn handle_hot_keys(input: &termion::event::Event) -> bool {
+    match input {
+        Event::Key(Key::Ctrl('s')) => {
+            save_file("Hi.txt");
+        }
+        _ => {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn handle_special_movements(screen: &mut dyn Write, input: &termion::event::Event) -> bool {
     match input {
         Event::Mouse(me) => match me {
             MouseEvent::Press(_, x, y) => {
@@ -220,8 +248,10 @@ fn handle_special_movements(screen: &mut dyn Write, input: &termion::event::Even
                 screen.flush().unwrap();
             }
             _ => {}
+        },
+        _ => {
+            return false;
         }
-        _ => {return false;}
     }
     return true;
 }
@@ -235,9 +265,19 @@ fn save_file(path: &str) -> fs::File {
 }
 
 fn main() {
-    let file_name = get_file_name();
-    //TODO: Fix panic
-    let (_, file_extension) = file_name.split_at(file_name.find('.').unwrap() + 1);
+    let file_name = match get_file_name() {
+        Ok(file_name) => file_name,
+        Err(_) => {
+            print_help();
+            return;
+        }
+    };
+
+    let file_extension = match file_name.find('.') {
+        Some(index) => file_name.split_at(index + 1).1,
+        None => "txt",
+    };
+
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let syntax = syntax_set.find_syntax_by_extension(file_extension).unwrap();
     let theme = &ThemeSet::load_defaults().themes["base16-ocean.dark"];
@@ -249,10 +289,10 @@ fn main() {
             theme: theme,
         },
         editor_status: EditorStatus {
-            width: terminal_size.0,
-            height: terminal_size.1,
+            width: terminal_size.0 as usize,
+            height: terminal_size.1 as usize,
             display_begin_row: 0,
-            display_end_row: terminal_size.1 as usize, //terminal_size.1 as usize does not work for small files. needs to be total lines or terminal size. The smaller.
+            display_end_row: terminal_size.1 as usize,
             cursor_row: 2,
             cursor_col: 1,
             saved: false,
@@ -263,8 +303,10 @@ fn main() {
             contents: Vec::new(),
         },
     };
-    
-    editor.load_file();
+
+    if editor.file_information.file_name != "" {
+        editor.load_file();
+    }
 
     let mut screen = create_editor_ui();
     repaint_file(&mut editor, &mut screen);
