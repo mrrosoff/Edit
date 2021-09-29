@@ -102,19 +102,22 @@ fn repaint_file(editor: &mut Editor, screen: &mut dyn Write) {
     let file_information = &editor.file_information;
     write!(screen, "{}", termion::clear::All).unwrap();
     let mut write_row = EDITOR_NAME_OFFSET as u16;
+
+    write!(screen, "{}", termion::cursor::Hide).unwrap();
     for line in &file_information.contents
         [editor_status.display_begin_row..editor_status.display_end_row - EDITOR_NAME_OFFSET]
     {
-        write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap(); //need to hide the cursor termion::cursor::HideCursor
+        write!(screen, "{}{}", termion::cursor::Goto(1, write_row), line).unwrap();
         write_row += 1;
     }
     write!(
         screen,
-        "{}",
+        "{}{}",
         termion::cursor::Goto(
             editor_status.cursor_col as u16,
             editor_status.cursor_row as u16
-        )
+        ),
+        termion::cursor::Show
     )
     .unwrap();
     screen.flush().unwrap();
@@ -142,7 +145,7 @@ fn handle_events(editor: &mut Editor, screen: &mut dyn Write) {
         if handle_editing(editor, screen, &input)
             || handle_key_movements(editor, screen, &input)
             || handle_hot_keys(&input)
-            || handle_special_movements(screen, &input)
+            || handle_special_movements(editor, screen, &input)
         {
             continue;
         } else if input == Event::Key(Key::Ctrl('q')) {
@@ -240,12 +243,14 @@ fn handle_hot_keys(input: &termion::event::Event) -> bool {
     return true;
 }
 
-fn handle_special_movements(screen: &mut dyn Write, input: &termion::event::Event) -> bool {
+fn handle_special_movements(editor: &mut Editor, screen: &mut dyn Write, input: &termion::event::Event) -> bool {
     match input {
         Event::Mouse(me) => match me {
             MouseEvent::Press(_, x, y) => {
                 write!(screen, "{}", termion::cursor::Goto(*x, *y)).unwrap();
                 screen.flush().unwrap();
+                editor.editor_status.cursor_col = *x as usize;
+                editor.editor_status.cursor_row = *y as usize;
             }
             _ => {}
         },
